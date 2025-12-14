@@ -10,11 +10,12 @@ class DataProcessor {
     this.provinces = new Set();
     this.dates = [];
     this.iraqBoundary = null;
+    this.heatmapData = null; // 2003-2011 heatmap data from JSON
     this.isLoaded = false;
   }
 
   // Load and process the CSV file
-  async loadData(csvPath, boundaryPath) {
+  async loadData(csvPath, boundaryPath, heatmapJsonPath) {
     console.log('📊 Loading SIGACTS data...');
     
     return new Promise((resolve, reject) => {
@@ -79,6 +80,12 @@ class DataProcessor {
           if (boundaryPath && fs.existsSync(boundaryPath)) {
             this.iraqBoundary = JSON.parse(fs.readFileSync(boundaryPath, 'utf8'));
             console.log('🗺️  Loaded Iraq boundary GeoJSON');
+          }
+          
+          // Load heatmap data (2003-2011)
+          if (heatmapJsonPath && fs.existsSync(heatmapJsonPath)) {
+            this.heatmapData = JSON.parse(fs.readFileSync(heatmapJsonPath, 'utf8'));
+            console.log('📊 Loaded heatmap data (2003-2011)');
           }
           
           this.isLoaded = true;
@@ -216,26 +223,16 @@ class DataProcessor {
     };
   }
 
-  // Process data for heatmap chart - return processed data
+  // Get heatmap data (2003-2011 from JSON)
   getHeatmapData() {
-    const dateCounts = {};
-    
-    for (const incident of this.allIncidents) {
-      if (!incident.date) continue;
-      dateCounts[incident.date] = (dateCounts[incident.date] || 0) + 1;
+    if (this.heatmapData) {
+      return {
+        dates: this.heatmapData.dates,
+        counts: this.heatmapData.counts
+      };
     }
-    
-    // Get unique sorted dates
-    const uniqueDates = Object.keys(dateCounts).sort();
-    const dates = [];
-    const counts = [];
-    
-    for (const date of uniqueDates) {
-      dates.push(date);
-      counts.push(dateCounts[date]);
-    }
-    
-    return { dates, counts };
+    // Fallback to empty if no data
+    return { dates: [], counts: [] };
   }
 
   // Get Iraq boundary GeoJSON

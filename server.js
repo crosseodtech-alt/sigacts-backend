@@ -19,8 +19,9 @@ async function initializeData() {
   try {
     const csvPath = path.join(__dirname, 'data', 'IQ_SIGACTs_-_cleaned.csv');
     const boundaryPath = path.join(__dirname, 'data', 'iq.json');
+    const heatmapJsonPath = path.join(__dirname, 'data', 'sigacts_data.json');
     
-    await dataProcessor.loadData(csvPath, boundaryPath);
+    await dataProcessor.loadData(csvPath, boundaryPath, heatmapJsonPath);
     dataLoaded = true;
     console.log('✅ Data initialization complete!');
   } catch (error) {
@@ -111,7 +112,7 @@ app.get('/api/dashboard/treemap', ensureDataLoaded, (req, res) => {
   try {
     const data = dataProcessor.getTreemapData();
     console.log('📊 Sent treemap data to client');
-    res.json({ series: data });
+    res.json(data);
   } catch (error) {
     console.error('Error generating treemap data:', error);
     res.status(500).json({ error: 'Failed to generate treemap data' });
@@ -122,7 +123,7 @@ app.get('/api/dashboard/treemap', ensureDataLoaded, (req, res) => {
 app.get('/api/dashboard/radar', ensureDataLoaded, (req, res) => {
   try {
     const data = dataProcessor.getRadarData();
-    console.log('📊 Sent radar chart data to client');
+    console.log('📊 Sent radar data to client');
     res.json(data);
   } catch (error) {
     console.error('Error generating radar data:', error);
@@ -186,4 +187,3 @@ process.on('SIGINT', () => {
   console.log('\n🛑 Shutting down server...');
   process.exit(0);
 });
- 
