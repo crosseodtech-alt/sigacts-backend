@@ -56,9 +56,7 @@ class DataProcessor {
         })
         .on('end', () => {
           this.allIncidents = incidents;
-          this.dates = Array.from(this.dateIndex.keys()).sort((a, b) => 
-            new Date(a) - new Date(b)
-          );
+ 	  this.dates = Array.from(this.dateIndex.keys()).sort();
           
           console.log(`✅ Loaded ${incidents.length} incidents`);
           console.log(`📅 Date range: ${this.dates[0]} to ${this.dates[this.dates.length - 1]}`);
