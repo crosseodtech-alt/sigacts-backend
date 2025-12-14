@@ -27,10 +27,22 @@ class DataProcessor {
           const datePart = dateTime.split(' ')[0];
           const timePart = dateTime.split(' ')[1] || '';
           
+          // Convert M/D/YYYY to YYYY-MM-DD
+          let formattedDate = datePart;
+          if (datePart.includes('/')) {
+            const parts = datePart.split('/');
+            if (parts.length === 3) {
+              const month = parts[0].padStart(2, '0');
+              const day = parts[1].padStart(2, '0');
+              const year = parts[2];
+              formattedDate = `${year}-${month}-${day}`;
+            }
+          }
+          
           const incident = {
             lat: parseFloat(row.mgrs_Y),
             lng: parseFloat(row.mgrs_X),
-            date: datePart,
+            date: formattedDate,
             type: row['Incident Type'] || 'Unknown',
             category: row['Incident Category'] || 'N/A',
             targetCategory: row['Target Category'] || 'N/A',
@@ -49,14 +61,15 @@ class DataProcessor {
           this.provinces.add(incident.province);
           
           // Index by date for fast lookup
-          if (!this.dateIndex.has(datePart)) {
-            this.dateIndex.set(datePart, []);
+          if (!this.dateIndex.has(formattedDate)) {
+            this.dateIndex.set(formattedDate, []);
           }
-          this.dateIndex.get(datePart).push(incident);
+          this.dateIndex.get(formattedDate).push(incident);
         })
         .on('end', () => {
           this.allIncidents = incidents;
- 	  this.dates = Array.from(this.dateIndex.keys()).sort();
+          // Sort dates as strings (YYYY-MM-DD format sorts correctly)
+          this.dates = Array.from(this.dateIndex.keys()).sort();
           
           console.log(`✅ Loaded ${incidents.length} incidents`);
           console.log(`📅 Date range: ${this.dates[0]} to ${this.dates[this.dates.length - 1]}`);
@@ -109,7 +122,7 @@ class DataProcessor {
     };
   }
 
-  // Process data for treemap chart
+  // Process data for treemap chart - return series data
   getTreemapData() {
     const treemapData = {};
     
@@ -145,10 +158,10 @@ class DataProcessor {
       });
     }
     
-    return series;
+    return { series };
   }
 
-  // Process data for radar charts (time of day patterns)
+  // Process data for radar charts - return data only
   getRadarData() {
     const radarDataEnemy = {
       'Early Night (00:00-03:59)': 0,
@@ -203,59 +216,23 @@ class DataProcessor {
     };
   }
 
-  // Process data for heatmap chart (daily intensity by year)
+  // Process data for heatmap chart - return processed data
   getHeatmapData() {
-    const yearlyData = {};
-    
-    for (const incident of this.allIncidents) {
-      const date = incident.date;
-      if (!date) continue;
-      
-      const year = date.split('-')[0];
-      
-      if (!yearlyData[year]) {
-        yearlyData[year] = {};
-      }
-      
-      if (!yearlyData[year][date]) {
-        yearlyData[year][date] = 0;
-      }
-      
-      yearlyData[year][date]++;
-    }
-    
-    // Calculate day of year for each date
-    const getDayOfYear = (dateStr) => {
-      const date = new Date(dateStr);
-      const start = new Date(date.getFullYear(), 0, 0);
-      const diff = date - start;
-      const oneDay = 1000 * 60 * 60 * 24;
-      return Math.floor(diff / oneDay);
-    };
-    
-    // Transform into format with dates and counts arrays
-    const dates = [];
-    const counts = [];
-    
-    // Sort all dates
-    const allDates = this.allIncidents
-      .map(i => i.date)
-      .filter(d => d)
-      .sort();
-    
-    // Count incidents per date
     const dateCounts = {};
+    
     for (const incident of this.allIncidents) {
       if (!incident.date) continue;
       dateCounts[incident.date] = (dateCounts[incident.date] || 0) + 1;
     }
     
     // Get unique sorted dates
-    const uniqueDates = [...new Set(allDates)].sort();
+    const uniqueDates = Object.keys(dateCounts).sort();
+    const dates = [];
+    const counts = [];
     
     for (const date of uniqueDates) {
       dates.push(date);
-      counts.push(dateCounts[date] || 0);
+      counts.push(dateCounts[date]);
     }
     
     return { dates, counts };
