@@ -1,188 +1,306 @@
 require('dotenv').config();
-const express = require('express');
-const cors = require('cors');
-const path = require('path');
-const dataProcessor = require('./data-processor');
+const express      = require('express');
+const cors         = require('cors');
+const path         = require('path');
+const dataProcessor    = require('./data-processor');
+const afgDataProcessor = require('./afg-data-processor');
 
-const app = express();
+const app  = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware
-app.use(cors()); // Allow requests from GitHub Pages
+// ===== MIDDLEWARE =====
+app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Load data on startup
-let dataLoaded = false;
+// ===== STARTUP FLAGS =====
+let iraqDataLoaded = false;
+let afgDataLoaded  = false;
 
+// ===== DATA INITIALIZATION =====
 async function initializeData() {
   try {
-    const csvPath = path.join(__dirname, 'data', 'IQ_SIGACTs_-_cleaned.csv');
-    const boundaryPath = path.join(__dirname, 'data', 'iq.json');
-    const heatmapJsonPath = path.join(__dirname, 'data', 'sigacts_data.json');
-    
-    await dataProcessor.loadData(csvPath, boundaryPath, heatmapJsonPath);
-    dataLoaded = true;
-    console.log('✅ Data initialization complete!');
+    // ---- Iraq ----
+    const iraqCsvPath     = path.join(__dirname, 'data', 'IQ_SIGACTs_-_cleaned.csv');
+    const iraqBoundaryPath = path.join(__dirname, 'data', 'iq.json');
+    const heatmapJsonPath  = path.join(__dirname, 'data', 'sigacts_data.json');
+
+    await dataProcessor.loadData(iraqCsvPath, iraqBoundaryPath, heatmapJsonPath);
+    iraqDataLoaded = true;
+    console.log('✅ Iraq data initialization complete!');
   } catch (error) {
-    console.error('❌ Error loading data:', error);
+    console.error('❌ Error loading Iraq data:', error);
     process.exit(1);
+  }
+
+  try {
+    // ---- Afghanistan ----
+    const afgCsvPath      = path.join(__dirname, 'data', 'AfgSigacts_cleaned.csv');
+    const afgBoundaryPath = path.join(__dirname, 'data', 'af.json');
+
+    await afgDataProcessor.loadData(afgCsvPath, afgBoundaryPath);
+    afgDataLoaded = true;
+    console.log('✅ Afghanistan data initialization complete!');
+  } catch (error) {
+    console.error('❌ Error loading Afghanistan data:', error);
+    // Don't exit -- Iraq still works if Afghan load fails
+    console.error('⚠️  Server continuing without Afghanistan data.');
   }
 }
 
-// Middleware to check if data is loaded
-function ensureDataLoaded(req, res, next) {
-  if (!dataLoaded) {
-    return res.status(503).json({ 
-      error: 'Server is still loading data. Please try again in a moment.' 
-    });
+// ===== READY-CHECK MIDDLEWARE =====
+function ensureIraqLoaded(req, res, next) {
+  if (!iraqDataLoaded) {
+    return res.status(503).json({ error: 'Iraq data is still loading. Please try again in a moment.' });
   }
   next();
 }
 
-// ========== ROUTES ==========
+function ensureAfgLoaded(req, res, next) {
+  if (!afgDataLoaded) {
+    return res.status(503).json({ error: 'Afghanistan data is still loading. Please try again in a moment.' });
+  }
+  next();
+}
 
-// Health check
+// =============================================================
+// ===== IRAQ ROUTES (unchanged) ===============================
+// =============================================================
+
 app.get('/', (req, res) => {
-  res.json({ 
-    message: '🚀 Iraq SIGACTS API Server is running!',
-    status: dataLoaded ? 'ready' : 'loading',
+  res.json({
+    message: '🚀 SIGACTS API Server is running!',
+    status: {
+      iraq:        iraqDataLoaded ? 'ready' : 'loading',
+      afghanistan: afgDataLoaded  ? 'ready' : 'loading'
+    },
     endpoints: [
+      // Iraq
       'GET /api/dates',
       'GET /api/metadata',
       'GET /api/incidents/:date',
       'GET /api/dashboard/treemap',
       'GET /api/dashboard/radar',
       'GET /api/dashboard/heatmap',
-      'GET /api/boundary'
+      'GET /api/boundary',
+      // Afghanistan
+      'GET /api/afg/dates',
+      'GET /api/afg/metadata',
+      'GET /api/afg/incidents/:date',
+      'GET /api/afg/dashboard/treemap',
+      'GET /api/afg/dashboard/radar',
+      'GET /api/afg/dashboard/heatmap',
+      'GET /api/afg/boundary'
     ]
   });
 });
 
-// Get all available dates
-app.get('/api/dates', ensureDataLoaded, (req, res) => {
+app.get('/api/dates', ensureIraqLoaded, (req, res) => {
   try {
     const dates = dataProcessor.getDates();
-    console.log(`📅 Sent ${dates.length} dates to client`);
+    console.log(`📅 [Iraq] Sent ${dates.length} dates`);
     res.json({ dates });
   } catch (error) {
-    console.error('Error fetching dates:', error);
+    console.error('Error fetching Iraq dates:', error);
     res.status(500).json({ error: 'Failed to fetch dates' });
   }
 });
 
-// Get metadata (types, categories, provinces)
-app.get('/api/metadata', ensureDataLoaded, (req, res) => {
+app.get('/api/metadata', ensureIraqLoaded, (req, res) => {
   try {
     const metadata = dataProcessor.getMetadata();
-    console.log('📊 Sent metadata to client');
+    console.log('📊 [Iraq] Sent metadata');
     res.json(metadata);
   } catch (error) {
-    console.error('Error fetching metadata:', error);
+    console.error('Error fetching Iraq metadata:', error);
     res.status(500).json({ error: 'Failed to fetch metadata' });
   }
 });
 
-// Get incidents for a specific date with optional filters
-// Example: /api/incidents/2007-12-15?type=Enemy%20Action&category=all&province=Baghdad
-app.get('/api/incidents/:date', ensureDataLoaded, (req, res) => {
+app.get('/api/incidents/:date', ensureIraqLoaded, (req, res) => {
   try {
     const { date } = req.params;
     const filters = {
-      type: req.query.type,
+      type:     req.query.type,
       category: req.query.category,
       province: req.query.province
     };
-    
     const incidents = dataProcessor.getIncidents(date, filters);
-    console.log(`📤 Sent ${incidents.length} incidents for ${date}`);
-    res.json({ 
-      date,
-      count: incidents.length,
-      incidents 
-    });
+    console.log(`📤 [Iraq] Sent ${incidents.length} incidents for ${date}`);
+    res.json({ date, count: incidents.length, incidents });
   } catch (error) {
-    console.error('Error fetching incidents:', error);
+    console.error('Error fetching Iraq incidents:', error);
     res.status(500).json({ error: 'Failed to fetch incidents' });
   }
 });
 
-// Get treemap data (incident type distribution)
-app.get('/api/dashboard/treemap', ensureDataLoaded, (req, res) => {
+app.get('/api/dashboard/treemap', ensureIraqLoaded, (req, res) => {
   try {
     const data = dataProcessor.getTreemapData();
-    console.log('📊 Sent treemap data to client');
+    console.log('📊 [Iraq] Sent treemap data');
     res.json(data);
   } catch (error) {
-    console.error('Error generating treemap data:', error);
+    console.error('Error generating Iraq treemap:', error);
     res.status(500).json({ error: 'Failed to generate treemap data' });
   }
 });
 
-// Get radar chart data (time patterns)
-app.get('/api/dashboard/radar', ensureDataLoaded, (req, res) => {
+app.get('/api/dashboard/radar', ensureIraqLoaded, (req, res) => {
   try {
     const data = dataProcessor.getRadarData();
-    console.log('📊 Sent radar data to client');
+    console.log('📊 [Iraq] Sent radar data');
     res.json(data);
   } catch (error) {
-    console.error('Error generating radar data:', error);
+    console.error('Error generating Iraq radar:', error);
     res.status(500).json({ error: 'Failed to generate radar data' });
   }
 });
 
-// Get heatmap data (daily intensity by year)
-app.get('/api/dashboard/heatmap', ensureDataLoaded, (req, res) => {
+app.get('/api/dashboard/heatmap', ensureIraqLoaded, (req, res) => {
   try {
     const data = dataProcessor.getHeatmapData();
-    console.log('📊 Sent heatmap data to client');
+    console.log('📊 [Iraq] Sent heatmap data');
     res.json(data);
   } catch (error) {
-    console.error('Error generating heatmap data:', error);
+    console.error('Error generating Iraq heatmap:', error);
     res.status(500).json({ error: 'Failed to generate heatmap data' });
   }
 });
 
-// Get Iraq boundary GeoJSON
-app.get('/api/boundary', ensureDataLoaded, (req, res) => {
+app.get('/api/boundary', ensureIraqLoaded, (req, res) => {
   try {
     const boundary = dataProcessor.getBoundary();
-    if (!boundary) {
-      return res.status(404).json({ error: 'Boundary data not found' });
-    }
-    console.log('🗺️  Sent boundary data to client');
+    if (!boundary) return res.status(404).json({ error: 'Iraq boundary data not found' });
+    console.log('🗺️  [Iraq] Sent boundary');
     res.json(boundary);
   } catch (error) {
-    console.error('Error fetching boundary:', error);
+    console.error('Error fetching Iraq boundary:', error);
     res.status(500).json({ error: 'Failed to fetch boundary' });
   }
 });
 
-// 404 handler
+// =============================================================
+// ===== AFGHANISTAN ROUTES ====================================
+// =============================================================
+
+app.get('/api/afg/dates', ensureAfgLoaded, (req, res) => {
+  try {
+    const dates = afgDataProcessor.getDates();
+    console.log(`📅 [Afghanistan] Sent ${dates.length} dates`);
+    res.json({ dates });
+  } catch (error) {
+    console.error('Error fetching Afghanistan dates:', error);
+    res.status(500).json({ error: 'Failed to fetch dates' });
+  }
+});
+
+app.get('/api/afg/metadata', ensureAfgLoaded, (req, res) => {
+  try {
+    const metadata = afgDataProcessor.getMetadata();
+    console.log('📊 [Afghanistan] Sent metadata');
+    res.json(metadata);
+  } catch (error) {
+    console.error('Error fetching Afghanistan metadata:', error);
+    res.status(500).json({ error: 'Failed to fetch metadata' });
+  }
+});
+
+app.get('/api/afg/incidents/:date', ensureAfgLoaded, (req, res) => {
+  try {
+    const { date } = req.params;
+    const filters = {
+      type:     req.query.type,
+      category: req.query.category
+      // No province filter for Afghanistan
+    };
+    const incidents = afgDataProcessor.getIncidents(date, filters);
+    console.log(`📤 [Afghanistan] Sent ${incidents.length} incidents for ${date}`);
+    res.json({ date, count: incidents.length, incidents });
+  } catch (error) {
+    console.error('Error fetching Afghanistan incidents:', error);
+    res.status(500).json({ error: 'Failed to fetch incidents' });
+  }
+});
+
+app.get('/api/afg/dashboard/treemap', ensureAfgLoaded, (req, res) => {
+  try {
+    const data = afgDataProcessor.getTreemapData();
+    console.log('📊 [Afghanistan] Sent treemap data');
+    res.json(data);
+  } catch (error) {
+    console.error('Error generating Afghanistan treemap:', error);
+    res.status(500).json({ error: 'Failed to generate treemap data' });
+  }
+});
+
+app.get('/api/afg/dashboard/radar', ensureAfgLoaded, (req, res) => {
+  try {
+    const data = afgDataProcessor.getRadarData();
+    console.log('📊 [Afghanistan] Sent radar data');
+    res.json(data);
+  } catch (error) {
+    console.error('Error generating Afghanistan radar:', error);
+    res.status(500).json({ error: 'Failed to generate radar data' });
+  }
+});
+
+app.get('/api/afg/dashboard/heatmap', ensureAfgLoaded, (req, res) => {
+  try {
+    const data = afgDataProcessor.getHeatmapData();
+    console.log('📊 [Afghanistan] Sent heatmap data');
+    res.json(data);
+  } catch (error) {
+    console.error('Error generating Afghanistan heatmap:', error);
+    res.status(500).json({ error: 'Failed to generate heatmap data' });
+  }
+});
+
+app.get('/api/afg/boundary', ensureAfgLoaded, (req, res) => {
+  try {
+    const boundary = afgDataProcessor.getBoundary();
+    if (!boundary) return res.status(404).json({ error: 'Afghanistan boundary data not found' });
+    console.log('🗺️  [Afghanistan] Sent boundary');
+    res.json(boundary);
+  } catch (error) {
+    console.error('Error fetching Afghanistan boundary:', error);
+    res.status(500).json({ error: 'Failed to fetch boundary' });
+  }
+});
+
+// ===== 404 HANDLER =====
 app.use((req, res) => {
   res.status(404).json({ error: 'Endpoint not found' });
 });
 
-// Start server
+// =============================================================
+// ===== SERVER START ==========================================
+// =============================================================
 async function startServer() {
   await initializeData();
-  
+
   app.listen(PORT, () => {
-    console.log(`\n🌐 Server is running on http://localhost:${PORT}`);
-    console.log(`📍 API endpoints:`);
-    console.log(`   GET  http://localhost:${PORT}/api/dates`);
-    console.log(`   GET  http://localhost:${PORT}/api/metadata`);
-    console.log(`   GET  http://localhost:${PORT}/api/incidents/:date`);
-    console.log(`   GET  http://localhost:${PORT}/api/dashboard/treemap`);
-    console.log(`   GET  http://localhost:${PORT}/api/dashboard/radar`);
-    console.log(`   GET  http://localhost:${PORT}/api/dashboard/heatmap`);
-    console.log(`   GET  http://localhost:${PORT}/api/boundary\n`);
+    console.log(`\n🌐 Server running on http://localhost:${PORT}`);
+    console.log('📍 Iraq endpoints:');
+    console.log(`   GET /api/dates`);
+    console.log(`   GET /api/metadata`);
+    console.log(`   GET /api/incidents/:date`);
+    console.log(`   GET /api/dashboard/treemap`);
+    console.log(`   GET /api/dashboard/radar`);
+    console.log(`   GET /api/dashboard/heatmap`);
+    console.log(`   GET /api/boundary`);
+    console.log('📍 Afghanistan endpoints:');
+    console.log(`   GET /api/afg/dates`);
+    console.log(`   GET /api/afg/metadata`);
+    console.log(`   GET /api/afg/incidents/:date`);
+    console.log(`   GET /api/afg/dashboard/treemap`);
+    console.log(`   GET /api/afg/dashboard/radar`);
+    console.log(`   GET /api/afg/dashboard/heatmap`);
+    console.log(`   GET /api/afg/boundary\n`);
   });
 }
 
 startServer();
 
-// Graceful shutdown
 process.on('SIGINT', () => {
   console.log('\n🛑 Shutting down server...');
   process.exit(0);
